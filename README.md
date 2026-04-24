@@ -1,37 +1,26 @@
 # File Storage App (PDF/DOCX)
 
-Laravel application for uploading PDF and DOCX files, listing them in UI, deleting manually, and auto-deleting files older than 24 hours.
+Laravel app for uploading PDF/DOCX files, listing them in UI, manual deletion, and automatic expiration cleanup.
 
 ## Features
 
 - Upload only `PDF` and `DOCX` files (max 10 MB)
-- Store uploaded files on local disk and metadata in MySQL
-- Delete files manually from UI
-- Auto-delete files older than 24 hours via scheduler command
-- Send deletion notifications:
-  - RabbitMQ event payload
-  - Email notification through Mailpit
+- Store files on local disk with metadata in MySQL
+- Manual delete from UI
+- Automatic delete after 24 hours
+- Notification on delete:
+  - RabbitMQ message
+  - Email via Mailpit
 
-## Tech Stack
+## Stack
 
 - PHP `8.2`
 - Laravel `11`
 - MySQL `8`
-- RabbitMQ `3` (management UI included)
-- Nginx (for HTTP in Docker)
-- Mailpit (local SMTP + inbox UI)
-
-## Prerequisites
-
-Choose one runtime approach:
-
-- Docker (recommended):
-  - Docker Desktop with Docker Compose
-- Local PHP runtime:
-  - PHP `8.2+`
-  - Composer
-  - MySQL `8+`
-  - RabbitMQ `3+`
+- RabbitMQ `3-management`
+- Nginx
+- Mailpit
+- Docker Compose
 
 ## Environment Setup
 
@@ -41,148 +30,118 @@ Choose one runtime approach:
 cp .env.example .env
 ```
 
-2. Keep or update key variables in `.env`:
+1. Configure key values in `.env`:
 
-- `APP_URL=http://localhost:8080` (Docker default)
+- App:
+  - `APP_URL=http://localhost:8080`
 - DB:
-  - `DB_HOST=mysql` (Docker)
+  - `DB_HOST=mysql`
   - `DB_DATABASE=filestorage`
   - `DB_USERNAME=filestorage`
   - `DB_PASSWORD=secret`
   - `DB_ROOT_PASSWORD=root`
 - RabbitMQ:
-  - `RABBITMQ_HOST=rabbitmq` (Docker)
+  - `RABBITMQ_HOST=rabbitmq`
   - `RABBITMQ_PORT=5672`
   - `RABBITMQ_USER=guest`
   - `RABBITMQ_PASSWORD=guest`
   - `RABBITMQ_QUEUE=file_notifications`
-- Notifications:
+- Email:
   - `NOTIFICATION_EMAIL=admin@example.com`
-- Mailpit:
   - `MAIL_HOST=mailpit`
   - `MAIL_PORT=1025`
 
+1. Optional host port overrides for Docker (to avoid collisions):
+
+- `APP_PORT` (default `8080`)
+- `MYSQL_PORT` (default `3306`)
+- `RABBITMQ_PORT` (host mapping target for AMQP, default `5672`)
+- `RABBITMQ_MANAGEMENT_PORT` (default `15672`)
+- `MAILPIT_SMTP_PORT` (default `1025`)
+- `MAILPIT_WEB_PORT` (default `8025`)
+
+Example if RabbitMQ ports are already busy on your machine:
+
+```env
+RABBITMQ_PORT=5673
+RABBITMQ_MANAGEMENT_PORT=15673
+```
+
 ## Launch Guide (Docker)
 
-1. Build and start services:
+1. Build and start:
 
 ```bash
 docker compose up -d --build
 ```
 
-2. Install PHP dependencies in app container:
+1. Install dependencies:
 
 ```bash
 docker compose exec app composer install
 ```
 
-3. Generate app key:
+1. Generate key:
 
 ```bash
 docker compose exec app php artisan key:generate
 ```
 
-4. Run database migrations:
+1. Run migrations:
 
 ```bash
 docker compose exec app php artisan migrate
 ```
 
-5. Open the app:
+1. Open services:
 
-- App UI: `http://localhost:8080`
-- RabbitMQ UI: `http://localhost:15672` (`guest` / `guest`)
-- Mailpit UI: `http://localhost:8025`
+- App: `http://localhost:8080` (or `APP_PORT`)
+- RabbitMQ UI: `http://localhost:15672` (or `RABBITMQ_MANAGEMENT_PORT`)
+- Mailpit UI: `http://localhost:8025` (or `MAILPIT_WEB_PORT`)
 
-6. Optional: watch Laravel logs:
+## Services in Compose
 
-```bash
-docker compose exec app php artisan pail
-```
+- `app`: PHP-FPM Laravel runtime
+- `nginx`: HTTP reverse proxy
+- `worker`: Laravel queue worker
+- `scheduler`: Laravel scheduler (`schedule:work`)
+- `mysql`: database
+- `rabbitmq`: broker
+- `mailpit`: SMTP + inbox UI
 
-## Launch Guide (Local PHP Runtime)
-
-1. Install dependencies:
-
-```bash
-composer install
-```
-
-2. Create `.env`, then update hosts for local services:
-
-- `DB_HOST=127.0.0.1`
-- `RABBITMQ_HOST=127.0.0.1`
-- `MAIL_HOST=127.0.0.1`
-- `APP_URL=http://127.0.0.1:8000`
-
-3. Generate key and migrate:
+Verify all services:
 
 ```bash
-php artisan key:generate
-php artisan migrate
+docker compose ps
 ```
 
-4. Start app server:
+## Automatic Expiration
 
-```bash
-php artisan serve
-```
-
-5. Open app at `http://127.0.0.1:8000`.
-
-## How to Use
-
-1. Open `/files` (root redirects there).
-2. Upload a `.pdf` or `.docx` file using drag-and-drop or file picker.
-3. See uploaded file metadata in the table.
-4. Delete manually with the Delete button.
-
-## Expiration and Cleanup
-
-- Files expire after 24 hours from `uploaded_at`.
+- Files expire 24 hours after `uploaded_at`.
 - Cleanup command:
 
 ```bash
 php artisan app:delete-expired-files
 ```
 
-In Docker:
+- In Docker:
 
 ```bash
-docker compose exec app php artisan app:delete-expired-files
+docker compose exec scheduler php artisan app:delete-expired-files
 ```
 
-- Scheduler registration runs this command every minute.
-
-To trigger scheduler manually in Docker:
-
-```bash
-docker compose exec app php artisan schedule:run
-```
+- Automatic schedule is configured for every **5 minutes** with overlap protection.
 
 ## Notification Flow
 
-On file delete (manual or expired):
+On delete (manual or expired):
 
-1. App dispatches `FileDeleted` event.
-2. Listener publishes RabbitMQ message (`file.deleted`) to `RABBITMQ_QUEUE`.
-3. Listener sends email to `NOTIFICATION_EMAIL` via Mailpit SMTP.
+1. `FileDeleted` event is dispatched.
+2. Queue worker handles `SendFileDeletionNotification`.
+3. Worker publishes `file.deleted` to RabbitMQ.
+4. Worker sends email to `NOTIFICATION_EMAIL` via Mailpit SMTP.
 
-## RabbitMQ Consumer (Debug)
-
-For terminal message inspection:
-
-```bash
-php scripts/consume-queue.php
-```
-
-In Docker:
-
-```bash
-docker compose exec app php scripts/consume-queue.php
-```
-
-## Tests
+## Testing
 
 Run full test suite:
 
@@ -190,28 +149,27 @@ Run full test suite:
 php artisan test
 ```
 
-In Docker:
+Run specific suites:
 
 ```bash
-docker compose exec app php artisan test
+php artisan test tests/Unit/SchedulerRegistrationTest.php tests/Feature/DeleteExpiredFilesCommandTest.php tests/Feature/RabbitMQNotificationTest.php
 ```
 
-## Useful Commands
+## Useful Docker Commands
 
 ```bash
-# stop containers
-docker compose down
-
-# stop containers and remove volumes
-docker compose down -v
-
-# view container logs
 docker compose logs -f
+docker compose down
+docker compose down -v
+docker compose exec app php artisan pail
 ```
 
 ## Troubleshooting
 
-- Upload fails with validation error: ensure file type is `pdf` or `docx` and size is <= 10 MB.
-- Cannot connect to DB or RabbitMQ: confirm containers are healthy with `docker compose ps`.
-- No email visible: check Mailpit UI at `http://localhost:8025`.
-- No RabbitMQ messages: verify queue name and inspect queue in RabbitMQ UI.
+- `service "scheduler" is not running`: one dependency failed to start; check `docker compose ps` and `docker compose logs`.
+- RabbitMQ bind error on `5672` or `15672`: set `RABBITMQ_PORT` / `RABBITMQ_MANAGEMENT_PORT` to free ports in `.env`.
+- MySQL Workbench connection:
+  - host: `127.0.0.1`
+  - port: `3306` (or `MYSQL_PORT`)
+  - user/password from `.env`
+
