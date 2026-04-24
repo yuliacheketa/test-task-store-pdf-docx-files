@@ -37,7 +37,7 @@
   <div class="card-inner">
 
     @if($files->isEmpty())
-      <div class="empty-state">
+      <div class="empty-state" id="emptyState">
         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
           <polyline points="14 2 14 8 20 8"/>
@@ -46,7 +46,7 @@
         <p class="empty-secondary">Uploaded files will appear here</p>
       </div>
     @else
-      <table class="files-table">
+      <table class="files-table" id="filesTable">
         <thead>
           <tr>
             <th>Name</th>
@@ -57,10 +57,10 @@
             <th></th>
           </tr>
         </thead>
-        <tbody>
+        <tbody id="filesTableBody">
           @foreach($files as $file)
             @php
-              $expiresAt = $file->uploaded_at->addHours(24);
+              $expiresAt = $file->expires_at;
               $minutesLeft = now()->diffInMinutes($expiresAt, false);
               $expiryClass = $minutesLeft < 60 ? 'badge-danger' : 'badge-warning';
             @endphp
@@ -189,7 +189,7 @@ $(function () {
       success: function (res) {
         setProgressVisible(false);
         showAlert('success', '"' + res.file.original_name + '" uploaded successfully.');
-        setTimeout(() => location.reload(), 1000);
+        prependUploadedFileRow(res.file);
       },
       error: function (xhr) {
         setProgressVisible(false);
@@ -216,14 +216,17 @@ $(function () {
   $('#confirmDeleteBtn').on('click', function () {
     const id = $(this).data('id');
     $.ajax({
-      url: '/files/' + id,
+      url: '{{ url('/files') }}/' + id,
       type: 'DELETE',
       success: function () {
         if (deleteModalInstance) deleteModalInstance.hide();
 
         const $row = $('#file-row-' + id);
         $row.addClass('removing');
-        setTimeout(() => $row.remove(), 260);
+        setTimeout(() => {
+          $row.remove();
+          toggleEmptyState();
+        }, 260);
 
         showAlert('success', 'File deleted.');
       },
@@ -234,8 +237,81 @@ $(function () {
     });
   });
 
+  function prependUploadedFileRow(file) {
+    if (!$('#filesTable').length) {
+      createTable();
+    }
+
+    const isPdf = String(file.mime_type || '').includes('pdf');
+    const typeBadge = isPdf
+      ? '<span class="badge badge-pdf">PDF</span>'
+      : '<span class="badge badge-docx">DOCX</span>';
+    const expiryClass = Number(file.expires_in_minutes) < 60 ? 'badge-danger' : 'badge-warning';
+    const row = [
+      '<tr id="file-row-' + file.id + '">',
+      '<td class="col-name"><span class="filename">' + escapeHtml(file.original_name) + '</span></td>',
+      '<td>' + typeBadge + '</td>',
+      '<td class="col-meta">' + escapeHtml(file.size) + '</td>',
+      '<td class="col-meta">' + escapeHtml(file.uploaded_at) + '</td>',
+      '<td><span class="badge ' + expiryClass + '">' + escapeHtml(file.expires_at) + '</span></td>',
+      '<td class="col-action"><button class="btn-delete" data-id="' + file.id + '" data-name="' + escapeHtml(file.original_name) + '">',
+      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">',
+      '<polyline points="3 6 5 6 21 6"/>',
+      '<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>',
+      '<path d="M10 11v6M14 11v6"/>',
+      '<path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
+      '</svg>',
+      'Delete</button></td>',
+      '</tr>'
+    ].join('');
+
+    $('#filesTableBody').prepend(row);
+    $('#emptyState').remove();
+  }
+
+  function createTable() {
+    const html = [
+      '<table class="files-table" id="filesTable">',
+      '<thead>',
+      '<tr><th>Name</th><th>Type</th><th>Size</th><th>Uploaded</th><th>Expires</th><th></th></tr>',
+      '</thead>',
+      '<tbody id="filesTableBody"></tbody>',
+      '</table>'
+    ].join('');
+
+    $('.card').last().find('.card-inner').prepend(html);
+  }
+
+  function toggleEmptyState() {
+    if ($('#filesTableBody tr').length > 0) {
+      return;
+    }
+
+    $('#filesTable').remove();
+    if ($('#emptyState').length) {
+      return;
+    }
+
+    const emptyHtml = [
+      '<div class="empty-state" id="emptyState">',
+      '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">',
+      '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>',
+      '<polyline points="14 2 14 8 20 8"/>',
+      '</svg>',
+      '<p class="empty-primary">No files uploaded yet</p>',
+      '<p class="empty-secondary">Uploaded files will appear here</p>',
+      '</div>'
+    ].join('');
+    $('.card').last().find('.card-inner').prepend(emptyHtml);
+  }
+
+  function escapeHtml(value) {
+    return $('<div>').text(value ?? '').html();
+  }
+
   function showAlert(type, msg) {
-    const $a = $('<div class="app-alert app-alert-' + type + '">' + msg + '</div>');
+    const $a = $('<div class="app-alert app-alert-' + type + '"></div>');
+    $a.text(msg);
     $('#alertArea').html($a);
     setTimeout(() => $a.addClass('is-dismissing'), 4200);
     setTimeout(() => $a.remove(), 4600);

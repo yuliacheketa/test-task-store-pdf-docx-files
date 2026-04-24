@@ -24,7 +24,7 @@ class SchedulerRegistrationTest extends TestCase
         );
     }
 
-    public function test_delete_expired_files_runs_every_minute(): void
+    public function test_delete_expired_files_runs_every_five_minutes(): void
     {
         Artisan::call('list');
 
@@ -37,10 +37,22 @@ class SchedulerRegistrationTest extends TestCase
         $this->assertNotNull($event, 'Scheduled event not found');
 
         $this->assertEquals(
-            '* * * * *',
+            '*/5 * * * *',
             $event->expression,
-            'Command must be scheduled with everyMinute() — cron expression should be * * * * *'
+            'Command must be scheduled with everyFiveMinutes() — cron expression should be */5 * * * *'
         );
+    }
+
+    public function test_delete_expired_files_has_overlap_protection(): void
+    {
+        Artisan::call('list');
+
+        $event = collect(app(Schedule::class)->events())->first(
+            fn ($e) => str_contains($e->command ?? '', 'delete-expired-files')
+        );
+
+        $this->assertNotNull($event, 'Scheduled event not found');
+        $this->assertTrue($event->withoutOverlapping, 'Command must use withoutOverlapping()');
     }
 
     public function test_delete_expired_files_has_exactly_one_scheduled_entry(): void

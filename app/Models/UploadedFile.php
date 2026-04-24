@@ -42,4 +42,9 @@ class UploadedFile extends Model
 
         return round($bytes / 1048576, 1).' MB';
     }
+
+    public function getExpiresAtAttribute()
+    {
+        return $this->uploaded_at?->copy()->addHours(24);
+    }
 }

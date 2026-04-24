@@ -31,7 +31,10 @@ class FileController extends Controller
                     'id' => $file->id,
                     'original_name' => $file->original_name,
                     'size' => $file->human_size,
-                    'uploaded_at' => $file->uploaded_at?->format('d.m.Y H:i'),
+                    'mime_type' => $file->mime_type,
+                    'uploaded_at' => $file->uploaded_at?->format('d M, H:i'),
+                    'expires_at' => $file->expires_at?->format('d M, H:i'),
+                    'expires_in_minutes' => now()->diffInMinutes($file->expires_at, false),
                 ],
             ]);
         } catch (\Exception $e) {

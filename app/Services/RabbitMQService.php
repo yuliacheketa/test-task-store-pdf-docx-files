@@ -37,6 +37,10 @@ class RabbitMQService
     {
         try {
             if ($this->channel === null) {
+                Log::warning('RabbitMQ publish skipped because channel is unavailable', [
+                    'event' => $event,
+                ]);
+
                 return;
             }
             $body = array_merge([

@@ -19,19 +19,22 @@ class DeleteExpiredFiles extends Command
 
     public function handle(): int
     {
-        $expired = UploadedFile::query()->expired()->get();
+        $count = 0;
+        UploadedFile::query()
+            ->expired()
+            ->orderBy('id')
+            ->chunkById(100, function ($files) use (&$count): void {
+                foreach ($files as $file) {
+                    $this->line($file->original_name);
+                    $this->fileService->delete($file, 'expired');
+                    $count++;
+                }
+            });
 
-        if ($expired->isEmpty()) {
+        if ($count === 0) {
             $this->info('No expired files found.');
 
             return Command::SUCCESS;
-        }
-
-        $count = 0;
-        foreach ($expired as $file) {
-            $this->line($file->original_name);
-            $this->fileService->delete($file, 'expired');
-            $count++;
         }
 
         $this->info("Deleted {$count} expired file(s).");

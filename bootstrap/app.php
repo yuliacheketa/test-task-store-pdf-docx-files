@@ -15,7 +15,10 @@ return Application::configure(basePath: dirname(__DIR__))
         //
     })
     ->withSchedule(function (Schedule $schedule) {
-        $schedule->command('app:delete-expired-files')->everyMinute();
+        $schedule
+            ->command('app:delete-expired-files')
+            ->everyFiveMinutes()
+            ->withoutOverlapping();
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //
